@@ -3123,74 +3123,106 @@ class SpectraTab(ctk.CTkFrame):
             bg="#1A1A1A",
             cursor="sb_h_double_arrow",
         )
-        splitter.grid(row=0, column=1, sticky="ns", pady=10)
+        splitter.grid(row=0, column=1, sticky="ns", pady=14)
         splitter.grid_propagate(False)
 
         line = ctk.CTkFrame(
             splitter,
             width=3,
             corner_radius=2,
-            fg_color=SETUP_BORDER_COLOR,
+            fg_color="#1A1A1A",
         )
-        line.place(relx=0.5, rely=0.5, relheight=0.96, anchor="center")
-        guide = ctk.CTkFrame(
+        line.place(relx=0.5, rely=0.5, relheight=0.94, anchor="center")
+        guide = tk.Frame(
             self.workspace,
             width=3,
-            corner_radius=2,
-            fg_color=SETUP_ACCENT_COLOR,
+            bd=0,
+            highlightthickness=0,
+            bg=SETUP_ACCENT_COLOR,
         )
-        drag_state = {
-            "start_x": 0,
-            "start_width": 480,
-            "pending_width": 480,
-        }
+        start_pointer_x = 0
+        pointer_offset = 0.0
+        start_column_width = 480
+        pending_column_width = 480
+        drag_moved = False
 
-        def width_for_pointer(pointer_x: int) -> int:
-            available = max(1, self.workspace.winfo_width())
-            maximum = max(
-                SETUP_PANEL_MIN_WIDTH,
-                available
+        def center_for_pointer(pointer_x: int) -> float:
+            local_pointer_x = pointer_x - self.workspace.winfo_rootx()
+            splitter_width = max(1, splitter.winfo_width())
+            half_splitter = splitter_width / 2.0
+            minimum_center = SETUP_PANEL_MIN_WIDTH + half_splitter
+            maximum_center = max(
+                minimum_center,
+                self.workspace.winfo_width()
                 - ANALYSIS_PANEL_MIN_WIDTH
-                - WORKSPACE_SPLITTER_WIDTH,
+                - half_splitter,
             )
-            return int(np.clip(
-                drag_state["start_width"] + pointer_x - drag_state["start_x"],
-                SETUP_PANEL_MIN_WIDTH,
-                maximum,
+            return float(np.clip(
+                local_pointer_x - pointer_offset,
+                minimum_center,
+                maximum_center,
             ))
 
         def begin_drag(event) -> None:
-            drag_state["start_x"] = int(event.x_root)
-            drag_state["start_width"] = max(
-                SETUP_PANEL_MIN_WIDTH,
-                self.setup_panel.winfo_width(),
+            nonlocal start_pointer_x, pointer_offset
+            nonlocal start_column_width, pending_column_width, drag_moved
+
+            self.update_idletasks()
+            start_pointer_x = int(event.x_root)
+            start_column_width = max(1, splitter.winfo_x())
+            pending_column_width = start_column_width
+            splitter_center = (
+                splitter.winfo_x() + splitter.winfo_width() / 2.0
             )
-            drag_state["pending_width"] = drag_state["start_width"]
-            line.configure(fg_color=SETUP_ACCENT_COLOR)
+            pointer_offset = (
+                start_pointer_x
+                - self.workspace.winfo_rootx()
+                - splitter_center
+            )
+            drag_moved = False
+
+            # From this point on, the grid column alone owns the width. This
+            # avoids feeding physical Tk pixels back into a scaled CTk width.
+            self.workspace.grid_columnconfigure(
+                0,
+                minsize=start_column_width,
+            )
+            self.setup_panel.configure(width=1)
+
+        def drag(event) -> None:
+            nonlocal pending_column_width, drag_moved
+
+            pointer_x = int(event.x_root)
+            if not drag_moved and abs(pointer_x - start_pointer_x) < 3:
+                return
+
+            drag_moved = True
+            splitter_center = center_for_pointer(pointer_x)
+            pending_column_width = int(round(
+                splitter_center - splitter.winfo_width() / 2.0
+            ))
             guide.place(
-                x=drag_state["start_width"] + 4,
+                x=int(round(splitter_center)),
                 rely=0.5,
-                relheight=0.96,
+                relheight=0.94,
                 anchor="center",
             )
             guide.lift()
 
-        def drag(event) -> None:
-            width = width_for_pointer(int(event.x_root))
-            drag_state["pending_width"] = width
-            guide.place_configure(x=width + 4)
-
         def end_drag(_event=None) -> None:
-            width = int(drag_state["pending_width"])
             guide.place_forget()
+            if not drag_moved or pending_column_width == start_column_width:
+                return
+
             cover = self._cover_layout_update(self.workspace)
 
             def apply_width() -> None:
                 if not self._layout_cover_exists(cover):
                     return
-                self.workspace.grid_columnconfigure(0, minsize=width)
-                self.setup_panel.configure(width=width)
-                line.configure(fg_color=SETUP_BORDER_COLOR)
+                self.workspace.grid_columnconfigure(
+                    0,
+                    minsize=pending_column_width,
+                )
                 self.after(35, finish_layout)
 
             def finish_layout() -> None:
@@ -3225,8 +3257,8 @@ class SpectraTab(ctk.CTkFrame):
             available - ANALYSIS_PANEL_MIN_WIDTH - WORKSPACE_SPLITTER_WIDTH,
         )
         resolved_width = int(np.clip(width, SETUP_PANEL_MIN_WIDTH, maximum))
+        self.setup_panel.configure(width=1)
         self.workspace.grid_columnconfigure(0, minsize=resolved_width)
-        self.setup_panel.configure(width=resolved_width)
 
     def _cover_layout_update(self, target) -> tk.Frame:
         # Keep intermediate widget reflow hidden until Tk has settled.
@@ -3391,7 +3423,7 @@ class SpectraTab(ctk.CTkFrame):
         splitter_line = ctk.CTkFrame(
             viewer_splitter,
             width=3,
-            fg_color=SETUP_BORDER_COLOR,
+            fg_color="#1A1A1A",
             corner_radius=2,
         )
         splitter_line.place(relx=0.5, rely=0.5, relheight=0.94, anchor="center")
@@ -3407,62 +3439,101 @@ class SpectraTab(ctk.CTkFrame):
         sidebar.grid(row=0, column=2, sticky="nsew", padx=(0, 8), pady=8)
         sidebar.grid_columnconfigure(0, weight=1)
 
-        split_guide = ctk.CTkFrame(
+        split_guide = tk.Frame(
             placeholder,
             width=3,
-            fg_color=SETUP_ACCENT_COLOR,
-            corner_radius=2,
+            bd=0,
+            highlightthickness=0,
+            bg=SETUP_ACCENT_COLOR,
         )
-        split_drag_state = {
-            "start_x": 0,
-            "start_width": 350,
-            "pending_width": 350,
-        }
+        start_pointer_x = 0
+        pointer_offset = 0.0
+        start_column_width = 350
+        pending_column_width = 350
+        drag_moved = False
 
-        def sidebar_width_for_pointer(pointer_x: int) -> int:
-            available = max(1, int(placeholder.winfo_width()))
-            maximum = max(300, available - 440)
-            delta = pointer_x - split_drag_state["start_x"]
-            return int(np.clip(
-                split_drag_state["start_width"] - delta,
-                300,
-                maximum,
+        def center_for_pointer(pointer_x: int) -> float:
+            local_pointer_x = pointer_x - placeholder.winfo_rootx()
+            available = max(1, placeholder.winfo_width())
+            splitter_width = max(1, viewer_splitter.winfo_width())
+            half_splitter = splitter_width / 2.0
+            minimum_center = 440 + half_splitter
+            maximum_center = max(
+                minimum_center,
+                available - 300 - half_splitter,
+            )
+            return float(np.clip(
+                local_pointer_x - pointer_offset,
+                minimum_center,
+                maximum_center,
             ))
 
         def begin_split_drag(event) -> None:
-            split_drag_state["start_x"] = int(event.x_root)
-            split_drag_state["start_width"] = max(
-                300,
-                int(sidebar.winfo_width()) + 8,
+            nonlocal start_pointer_x, pointer_offset
+            nonlocal start_column_width, pending_column_width, drag_moved
+
+            self.update_idletasks()
+            start_pointer_x = int(event.x_root)
+            start_column_width = max(
+                1,
+                placeholder.winfo_width()
+                - viewer_splitter.winfo_x()
+                - viewer_splitter.winfo_width(),
             )
-            split_drag_state["pending_width"] = split_drag_state["start_width"]
-            splitter_line.configure(fg_color=SETUP_ACCENT_COLOR)
-            available = max(1, int(placeholder.winfo_width()))
+            pending_column_width = start_column_width
+            splitter_center = (
+                viewer_splitter.winfo_x()
+                + viewer_splitter.winfo_width() / 2.0
+            )
+            pointer_offset = (
+                start_pointer_x
+                - placeholder.winfo_rootx()
+                - splitter_center
+            )
+            drag_moved = False
+
+            placeholder.grid_columnconfigure(
+                2,
+                minsize=start_column_width,
+            )
+            sidebar.configure(width=1)
+
+        def drag_split(event) -> None:
+            nonlocal pending_column_width, drag_moved
+
+            pointer_x = int(event.x_root)
+            if not drag_moved and abs(pointer_x - start_pointer_x) < 3:
+                return
+
+            drag_moved = True
+            splitter_center = center_for_pointer(pointer_x)
+            pending_column_width = int(round(
+                placeholder.winfo_width()
+                - splitter_center
+                - viewer_splitter.winfo_width() / 2.0
+            ))
             split_guide.place(
-                x=available - split_drag_state["start_width"] - 5,
+                x=int(round(splitter_center)),
                 rely=0.5,
                 relheight=0.94,
                 anchor="center",
             )
             split_guide.lift()
 
-        def drag_split(event) -> None:
-            available = max(1, int(placeholder.winfo_width()))
-            sidebar_width = sidebar_width_for_pointer(int(event.x_root))
-            split_drag_state["pending_width"] = sidebar_width
-            split_guide.place_configure(x=available - sidebar_width - 5)
-
         def end_split_drag(_event=None) -> None:
-            sidebar_width = int(split_drag_state["pending_width"])
             split_guide.place_forget()
+            if not drag_moved or pending_column_width == start_column_width:
+                return
+
             cover = self._cover_layout_update(placeholder)
 
             def apply_width() -> None:
                 if not self._layout_cover_exists(cover):
                     return
-                placeholder.grid_columnconfigure(2, minsize=sidebar_width)
-                sidebar.configure(width=max(280, sidebar_width - 8))
-                splitter_line.configure(fg_color=SETUP_BORDER_COLOR)
+                placeholder.grid_columnconfigure(
+                    2,
+                    minsize=pending_column_width,
+                )
                 canvas.draw_idle()
                 self._reveal_layout_after_idle(cover)
 
