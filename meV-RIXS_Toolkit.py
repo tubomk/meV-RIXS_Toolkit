@@ -14,7 +14,12 @@ from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
 from tkinter import filedialog
-from typing import cast, Literal, NotRequired, overload, TypedDict
+from typing import cast, Literal, overload, TypedDict, NotRequired
+# Note: NotRequired is available in Python 3.11 and later. For earlier versions, you can use typing_extensions.NotRequired instead.
+try:
+    from typing import NotRequired
+except ImportError:
+    from typing_extensions import NotRequired #type: ignore[import]
 from weakref import ReferenceType, ref
 
 import copy
