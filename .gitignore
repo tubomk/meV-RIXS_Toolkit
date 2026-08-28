@@ -15,3 +15,6 @@ dist/
 # Temporary files
 *.tmp
 *.log
+
+# Executable files
+*.exe
