@@ -40,8 +40,8 @@ meV-RIXS_Toolkit/
 │
 ├── meV-RIXS_Toolkit.py   # Main application and graphical user interface
 ├── mev_viewer.py         # RIXS data processing and viewer functionality
-├── icon8.ico             # Windows application icon
-├── icon8.png             # Application icon used for Linux / GUI resources
+├── icon9.ico             # Windows application icon
+├── icon9.png             # Application icon used for Linux / GUI resources
 ├── requirements.txt      # Python dependencies
 └── README.md
 ```

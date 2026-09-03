@@ -1,8 +1,8 @@
 # To create a onefile executable, use PyInstaller with the following command:
-# On Windows (Assuming the icon File is icon8.ico and icon8.png is in the same directory as this script):
-# pyinstaller --noconfirm --clean --onefile --windowed --name meV-RIXS_Toolkit --icon=icon8.ico --add-data "icon8.ico;." --add-data "icon8.png;." meV-RIXS_Toolkit.py
-# On Linux or macOS (Assuming the icon File is icon8.png and icon8.ico is in the same directory as this script):
-# python -m PyInstaller --noconfirm --clean --onefile --name meV-RIXS_Toolkit --add-data "icon8.png:." --hidden-import PIL._tkinter_finder meV-RIXS_Toolkit.py
+# On Windows (Assuming the icon File is icon9.ico and icon9.png is in the same directory as this script):
+# pyinstaller --noconfirm --clean --onefile --windowed --name meV-RIXS_Toolkit --icon=icon9.ico --add-data "icon9.ico;." --add-data "icon9.png;." meV-RIXS_Toolkit.py
+# On Linux or macOS (Assuming the icon File is icon9.png and icon9.ico is in the same directory as this script):
+# python -m PyInstaller --noconfirm --clean --onefile --name meV-RIXS_Toolkit --add-data "icon9.png:." --hidden-import PIL._tkinter_finder meV-RIXS_Toolkit.py
 # Main application window for configuring and running the meV-RIXS viewer.
 
 
@@ -3852,34 +3852,49 @@ class SpectraTab(ctk.CTkFrame):
             workspace.grid_columnconfigure(0, weight=5)
             workspace.grid_columnconfigure(1, weight=3)
             positions = {
-                "inputs": (0, 0),
-                "launch": (0, 1),
-                "calibration": (1, 0),
-                "metadata": (1, 1),
-                "output": (2, 0),
-                "log": (2, 1),
+                "inputs": (0, 0, 1),
+                "launch": (0, 1, 1),
+                "calibration": (1, 0, 1),
+                "metadata": (1, 1, 1),
+                "output": (2, 0, 1),
+                "comments": (2, 1, 1),
+                "log": (3, 0, 2),
             }
-            for name, (row, column) in positions.items():
+            for name, (row, column, columnspan) in positions.items():
                 card = self._setup_cards.get(name)
                 if card is None:
                     continue
                 card.grid(
                     row=row,
                     column=column,
+                    columnspan=columnspan,
                     sticky="nsew",
-                    padx=(0, 5) if column == 0 else (5, 0),
+                    padx=(
+                        0
+                        if columnspan == 2
+                        else ((0, 5) if column == 0 else (5, 0))
+                    ),
                     pady=5,
                 )
         else:
             workspace.grid_columnconfigure(0, weight=1)
             workspace.grid_columnconfigure(1, weight=0)
-            order = ("inputs", "launch", "calibration", "metadata", "output", "log")
+            order = (
+                "inputs",
+                "launch",
+                "calibration",
+                "metadata",
+                "output",
+                "comments",
+                "log",
+            )
             for row, name in enumerate(order):
                 card = self._setup_cards.get(name)
                 if card is not None:
                     card.grid(
                         row=row,
                         column=0,
+                        columnspan=1,
                         sticky="nsew",
                         padx=0,
                         pady=5,
@@ -4129,7 +4144,7 @@ class SpectraTab(ctk.CTkFrame):
             parent,
             name="inputs",
             title="Data Sources",
-            subtitle="Scans and locations used to discover detector and SPEC files",
+            subtitle="Scans numbers and file (parent-) locations for finding scan files (events) and SPEC files (metadata)",
         )
         frame.grid_columnconfigure(0, weight=1)
 
@@ -4356,6 +4371,7 @@ class SpectraTab(ctk.CTkFrame):
         self._build_calibration_section(parent)
         self._build_metadata_section(parent)
         self._build_save_section(parent)
+        self._build_comments_section(parent)
         self._build_log_section(parent)
 
     def _build_calibration_section(self, parent) -> None:
@@ -4897,6 +4913,36 @@ class SpectraTab(ctk.CTkFrame):
             placeholder="Default histograms folder",
         )
 
+    def _build_comments_section(self, parent) -> None:
+        frame = self._new_section_frame(
+            parent,
+            name="comments",
+            title="Comments",
+            subtitle="Notes stored with this dataset and its metadata exports",
+        )
+
+        frame.grid_columnconfigure(0, weight=1)
+        frame.grid_rowconfigure(0, weight=1)
+
+        # CTkTextbox provides its own vertical scrollbar when the text exceeds
+        # the visible area. Word wrapping keeps longer notes easy to read.
+        self.comments_box = ctk.CTkTextbox(
+            frame,
+            height=120,
+            wrap="word",
+            activate_scrollbars=True,
+            font=ui_font(UI["font_viewer_status"]),
+            fg_color=SETUP_CONTROL_COLOR,
+            border_color=SETUP_BORDER_COLOR,
+            border_width=1,
+            corner_radius=8,
+        )
+        self.comments_box.grid(
+            row=0,
+            column=0,
+            sticky="nsew",
+        )
+
     def _build_log_section(self, parent) -> None:
         frame = self._new_section_frame(
             parent,
@@ -5409,6 +5455,7 @@ class SpectraTab(ctk.CTkFrame):
                 "metadata_motor": self.metadata_motor_var.get(),
                 "metadata_value": self.metadata_value_var.get(),
                 "expchamber_value": self.expchamber_value_var.get(),
+                "comments": self.get_dataset_comments(),
             },
             "viewer_open": viewer_state is not None,
             "viewer": viewer_state,
@@ -5421,6 +5468,15 @@ class SpectraTab(ctk.CTkFrame):
         entry.delete(0, "end")
         if value is not None:
             entry.insert(0, str(value))
+
+    def get_dataset_comments(self) -> str:
+        # "end-1c" excludes the newline appended internally by Tk text widgets.
+        return self.comments_box.get("1.0", "end-1c")
+
+    def _set_dataset_comments(self, value: object) -> None:
+        self.comments_box.delete("1.0", "end")
+        if value is not None:
+            self.comments_box.insert("1.0", str(value))
 
     def restore_setup_session_state(self, state: dict) -> None:
         setup = state.get("setup", {}) if isinstance(state, dict) else {}
@@ -5460,6 +5516,7 @@ class SpectraTab(ctk.CTkFrame):
         self.apply_global_preferences_var.set(
             bool(setup.get("apply_global_preferences", False))
         )
+        self._set_dataset_comments(setup.get("comments", ""))
 
         calibration_cache = state.get("calibration_cache")
         self._calibration_cache = (
@@ -7114,8 +7171,14 @@ class SpectraTab(ctk.CTkFrame):
                 "energy_calibration": energy_calibration,
                 "incident_energy": incident_energy,
                 "window_title": options.dataset_name,
+                "dataset_comments_getter": self.get_dataset_comments,
+                "dataset_name_getter": (
+                    lambda: self.app.get_tab_name_for_tab(self)
+                ),
+                "export_directory_state": self.app.export_directory_state,
                 "export_metadata": {
                     "dataset_name": options.dataset_name,
+                    "comments": self.get_dataset_comments(),
                     "source_scans": [int(scan) for scan in options.scans],
                     "calibration_scans": (
                         [int(scan) for scan in options.calibration_scans]
@@ -7217,7 +7280,7 @@ class SpectraTab(ctk.CTkFrame):
             self.content_tabs.set("Viewer")
             self.update_idletasks()
 
-            self.log(f"Launcher file: {Path(__file__).resolve()}")
+            # self.log(f"Launcher file: {Path(__file__).resolve()}")
             self.viewer_figure, self.viewer_axes = mev_viewer.view_spectra(
                 **kwargs,
                 tk_parent=self.viewer_frame,
@@ -7226,7 +7289,7 @@ class SpectraTab(ctk.CTkFrame):
             self._record_open_viewer_calibration()
             self._sync_open_viewer_save_directories()
             self.content_tabs.set(content_tab_after_open)
-            self.log("Viewer embedded in the current dataset tab.")
+            
         except Exception as exc:
             self._viewer_applied_calibration = None
             self._pending_calibration_for_viewer = None
@@ -7364,12 +7427,12 @@ class SpectraLauncher(ctk.CTk):
         super().__init__()
         if platform.system() == "Windows":
             try:
-                self.iconbitmap(resource_path("icon8.ico"))
+                self.iconbitmap(resource_path("icon9.ico"))
             except (tk.TclError, OSError):
                 pass
         else:
             try:
-                icon_image = tk.PhotoImage(file=resource_path("icon8.png"))
+                icon_image = tk.PhotoImage(file=resource_path("icon9.png"))
                 self.iconphoto(True, icon_image)
                 self._icon_image = icon_image
             except (tk.TclError, OSError):
@@ -7445,6 +7508,8 @@ class SpectraLauncher(ctk.CTk):
 
         self.search_root_history: list[str] = []
         self.spec_search_root_history: list[str] = []
+        # Shared by all dataset viewers for convenient repeated manual exports.
+        self.export_directory_state: dict[str, Path] = {}
 
         self.tab_counter = 0
         self.tabs: dict[str, SpectraTab] = {}
@@ -8567,8 +8632,6 @@ class SpectraLauncher(ctk.CTk):
             "version": 1,
             "application": {
                 "session_name": document_session_name,
-                "zoom_percent": int(self.zoom_percent),
-                "text_size_percent": int(self.text_size_percent),
                 "selected_dataset": self.tabview.get(),
                 "search_root_history": list(self.search_root_history),
                 "spec_search_root_history": list(self.spec_search_root_history),
@@ -9814,17 +9877,9 @@ class SpectraLauncher(ctk.CTk):
 
         self.tab_counter = max(len(self.tabs), self.tab_counter)
 
-        requested_zoom = int(
-            application_state.get("zoom_percent", self.zoom_percent)
-        )
-        requested_text_size = int(
-            application_state.get("text_size_percent", self.text_size_percent)
-        )
-        if requested_zoom not in range(50, 151, 10):
-            requested_zoom = 100
-        if requested_text_size not in range(50, 151, 10):
-            requested_text_size = 100
-        self.apply_ui_settings(requested_zoom, requested_text_size)
+        # Interface scaling depends on the current display and is therefore
+        # intentionally not restored from sessions created on another machine.
+        self.apply_ui_settings(100, 100)
 
         selected_dataset = str(
             application_state.get("selected_dataset", next(iter(self.tabs)))

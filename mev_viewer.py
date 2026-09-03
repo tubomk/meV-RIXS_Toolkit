@@ -4035,6 +4035,9 @@ def view_spectra(
     viewer_font_factory: Callable[..., ctk.CTkFont] | None = None,
     session_state: dict | None = None,
     export_metadata: dict | None = None,
+    dataset_comments_getter: Callable[[], str] | None = None,
+    dataset_name_getter: Callable[[], str] | None = None,
+    export_directory_state: dict[str, Path] | None = None,
 
 ):
     """
@@ -6484,15 +6487,35 @@ def view_spectra(
     # Data export
     # -------------------------------------------------------------------------
 
+    def get_export_base_name() -> str:
+        """Return a filesystem-safe version of the current dataset name."""
+
+        dataset_name = str(window_title or "dataset")
+        if dataset_name_getter is not None:
+            try:
+                dataset_name = str(dataset_name_getter())
+            except tk.TclError:
+                # Fall back to the title captured when the Viewer was opened.
+                pass
+
+        safe_name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", dataset_name.strip())
+        safe_name = re.sub(r"\s+", "_", safe_name)
+        safe_name = re.sub(r"_+", "_", safe_name).rstrip(". ")
+        return safe_name or "dataset"
+
     def choose_output_file(
         directory: Path,
-        default_name: str,
         extension: str,
         file_description: str,
     ) -> Path | None:
         """Open a native Save As dialog when manual output naming is enabled."""
 
-        initial_directory = directory.expanduser()
+        remembered_directory = (
+            export_directory_state.get("last_directory")
+            if export_directory_state is not None
+            else None
+        )
+        initial_directory = Path(remembered_directory or directory).expanduser()
         while not initial_directory.exists() and initial_directory != initial_directory.parent:
             initial_directory = initial_directory.parent
         if not initial_directory.is_dir():
@@ -6502,14 +6525,20 @@ def view_spectra(
             parent=tk_parent.winfo_toplevel(),
             title=f"Save {file_description}",
             initialdir=str(initial_directory),
-            initialfile=f"{default_name}{extension}",
+            initialfile=f"{get_export_base_name()}{extension}",
             defaultextension=extension,
             filetypes=[
                 (f"{file_description} ({extension})", f"*{extension}"),
                 ("All files", "*.*"),
             ],
         )
-        return Path(selected_path) if selected_path else None
+        if not selected_path:
+            return None
+
+        output_path = Path(selected_path)
+        if export_directory_state is not None:
+            export_directory_state["last_directory"] = output_path.parent
+        return output_path
 
     def build_spectrum_export() -> np.ndarray:
         """Return Pixel, Energy, Loss and Counts with 1D binning fixed to one."""
@@ -6541,7 +6570,6 @@ def view_spectra(
             if choose_save_path_var.get():
                 output_path = choose_output_file(
                     spectra_save_dir,
-                    "spectrum",
                     ".npy",
                     "spectrum",
                 )
@@ -6627,6 +6655,16 @@ def view_spectra(
             group.create_dataset(dataset_name, data=array, **dataset_kwargs)
 
         metadata_payload = dict(export_metadata or {})
+        if dataset_comments_getter is not None:
+            try:
+                metadata_payload["comments"] = str(dataset_comments_getter())
+            except tk.TclError:
+                # Retain the comments captured when the Viewer was opened if
+                # the source widget is no longer available during shutdown.
+                pass
+        else:
+            metadata_payload.setdefault("comments", "")
+
         calibration_metadata = metadata_payload.get("calibration")
         if isinstance(calibration_metadata, dict):
             calibration_metadata = dict(calibration_metadata)
@@ -6668,7 +6706,6 @@ def view_spectra(
         if choose_save_path_var.get():
             output_path = choose_output_file(
                 spectra_save_dir,
-                "spectrum",
                 ".h5",
                 "spectrum with metadata",
             )
@@ -6721,7 +6758,6 @@ def view_spectra(
         if choose_save_path_var.get():
             output_path = choose_output_file(
                 histogram_save_dir,
-                "histogram",
                 ".npy",
                 "histogram",
             )
