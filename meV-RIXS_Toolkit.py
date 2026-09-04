@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
 from tkinter import filedialog
-from typing import cast, Literal, overload, TypedDict, NotRequired
+from typing import cast, Literal, overload, TypedDict
 # Note: NotRequired is available in Python 3.11 and later. For earlier versions, you can use typing_extensions.NotRequired instead.
 try:
     from typing import NotRequired
@@ -197,6 +197,7 @@ BUTTON_FG_COLOR = ("#4800C7", "#4800C7")
 BUTTON_HOVER_COLOR = ("#5B14D6", "#5B14D6")
 BUTTON_BORDER_COLOR = ("#8D73DF", "#7652D6")
 VIEWER_ACTIVE_BORDER_COLOR = "#F59E0B"
+APP_BACKGROUND_COLOR = "#121214"
 SETUP_CARD_COLOR = "#1A1A1A"
 SETUP_BORDER_COLOR = "#566173"
 SETUP_CONTROL_COLOR = "#2A2F3A"
@@ -3411,7 +3412,10 @@ class SpectraTab(ctk.CTkFrame):
         )
         canvas = FigureCanvasTkAgg(figure, master=plot_card)
         canvas_widget = canvas.get_tk_widget()
-        canvas_widget.configure(background="#121214", highlightthickness=0)
+        canvas_widget.configure(
+            background="#121214",
+            highlightthickness=0,
+        )
         canvas_widget.grid(row=0, column=0, sticky="nsew", padx=7, pady=7)
         canvas.draw()
 
@@ -7498,13 +7502,12 @@ class SpectraLauncher(ctk.CTk):
                 "\033[35mrm -f ~/.cache/matplotlib/fontlist-v*.json \033[0m "
             )
 
-        # Fallback color, visible briefly before the gradient is drawn.
-        self.configure(fg_color="#141414")
+        self.configure(fg_color=APP_BACKGROUND_COLOR)
 
         self.session_name = UNTITLED_SESSION_NAME
         self._update_window_title()
         self.set_responsive_initial_geometry()
-        self._build_window_gradient_background()
+        self._build_window_background()
 
         self.search_root_history: list[str] = []
         self.spec_search_root_history: list[str] = []
@@ -7517,6 +7520,7 @@ class SpectraLauncher(ctk.CTk):
 
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(1, weight=1)
+        self._build_section_shells()
         self._build_top_bar()
         self._build_tabs()
         self.add_plot_tab()
@@ -7528,8 +7532,6 @@ class SpectraLauncher(ctk.CTk):
 
     def _show_initialized_window(self) -> None:
         """Reveal the fully laid-out GUI without changing its geometry."""
-        self.update_idletasks()
-        self._redraw_window_gradient()
         self.update_idletasks()
 
         if self._startup_transparency_supported:
@@ -7551,6 +7553,41 @@ class SpectraLauncher(ctk.CTk):
 
     def _update_window_title(self) -> None:
         self.title(f"{APPLICATION_TITLE} - {self.session_name}")
+
+    def _build_section_shells(self) -> None:
+        """Create separate bordered cards for the title and workspace."""
+        self.title_shell = ctk.CTkFrame(
+            self,
+            fg_color=SETUP_CARD_COLOR,
+            border_color=SETUP_BORDER_COLOR,
+            border_width=2,
+            corner_radius=14,
+        )
+        self.title_shell.grid(
+            row=0,
+            column=0,
+            sticky="ew",
+            padx=UI["outer_padding"],
+            pady=(16, 8),
+        )
+        self.title_shell.grid_columnconfigure(0, weight=1)
+
+        self.content_shell = ctk.CTkFrame(
+            self,
+            fg_color=SETUP_CARD_COLOR,
+            border_color=SETUP_BORDER_COLOR,
+            border_width=2,
+            corner_radius=14,
+        )
+        self.content_shell.grid(
+            row=1,
+            column=0,
+            sticky="nsew",
+            padx=UI["outer_padding"],
+            pady=(0, 16),
+        )
+        self.content_shell.grid_columnconfigure(0, weight=1)
+        self.content_shell.grid_rowconfigure(0, weight=1)
 
     def _build_resize_overlay(self) -> None:
         """Create a calm placeholder shown during interactive window resizing."""
@@ -7701,8 +7738,6 @@ class SpectraLauncher(ctk.CTk):
             self.top_bar.grid()
         if hasattr(self, "tabview"):
             self.tabview.grid()
-        self.update_idletasks()
-        self._redraw_window_gradient()
         self.update_idletasks()
         self.resize_overlay.place_forget()
         self._resize_in_progress = False
@@ -7954,6 +7989,17 @@ class SpectraLauncher(ctk.CTk):
             ]
             user32.MonitorFromWindow.restype = wintypes.HANDLE
 
+            user32.GetCursorPos.argtypes = [
+                ctypes.POINTER(wintypes.POINT),
+            ]
+            user32.GetCursorPos.restype = wintypes.BOOL
+
+            user32.MonitorFromPoint.argtypes = [
+                wintypes.POINT,
+                wintypes.DWORD,
+            ]
+            user32.MonitorFromPoint.restype = wintypes.HANDLE
+
             hwnd = user32.GetAncestor(
                 self.winfo_id(),
                 GA_ROOT,
@@ -7962,10 +8008,21 @@ class SpectraLauncher(ctk.CTk):
             if not hwnd:
                 hwnd = self.winfo_id()
 
-            monitor = user32.MonitorFromWindow(
-                hwnd,
-                MONITOR_DEFAULTTONEAREST,
-            )
+            # At startup the new Tk window initially belongs to the primary
+            # monitor. Use the mouse pointer to identify the monitor on which
+            # the user is currently working, and keep the window-based lookup
+            # as a fallback if Windows cannot report the cursor position.
+            cursor_position = wintypes.POINT()
+            if user32.GetCursorPos(ctypes.byref(cursor_position)):
+                monitor = user32.MonitorFromPoint(
+                    cursor_position,
+                    MONITOR_DEFAULTTONEAREST,
+                )
+            else:
+                monitor = user32.MonitorFromWindow(
+                    hwnd,
+                    MONITOR_DEFAULTTONEAREST,
+                )
 
             monitor_info = MONITORINFO()
             monitor_info.cbSize = ctypes.sizeof(MONITORINFO)
@@ -8322,145 +8379,16 @@ class SpectraLauncher(ctk.CTk):
             f"+{work_x}+{work_y}"
         )
 
-    # Window artwork
+    # Window background
 
-    def _build_window_gradient_background(
-        self,
-    ) -> None:
-        """Create a resizable gradient behind the complete GUI."""
-
-        self._window_gradient_photo = None
-        self._window_gradient_image_id = None
-
-        self._window_gradient_canvas = tk.Canvas(
-            self,
-            bd=0,
-            highlightthickness=0,
-            relief="flat",
-            bg="#141414",
-        )
-        self._window_gradient_canvas.place(
-            x=0,
-            y=0,
-            relwidth=1,
-            relheight=1,
-        )
-
+    def _build_window_background(self) -> None:
+        """Use a uniform background behind the two bordered sections."""
+        self.configure(fg_color=APP_BACKGROUND_COLOR)
         self.bind(
             "<Configure>",
             self._on_root_configure,
             add="+",
         )
-
-        self.after_idle(
-            self._redraw_window_gradient
-        )
-
-
-    def _create_window_gradient_image(
-        self,
-        width: int,
-        height: int,
-    ) -> Image.Image:
-        """Generate a subtle, softly offset gnuplot gradient."""
-
-        # Render at a limited working resolution. A smooth gradient
-        # does not require full-resolution calculation.
-        render_width = min(width, 1000)
-        render_height = min(height, 700)
-
-        x = np.linspace(
-            -1.0,
-            1.0,
-            render_width,
-        )
-        y = np.linspace(
-            -1.0,
-            1.0,
-            render_height,
-        )
-        xx, yy = np.meshgrid(x, y)
-
-        # Move the glow slightly toward the upper-left area.
-        radius = np.sqrt(
-            ((xx + 0.25) / 1.25) ** 2
-            + ((yy - 0.45) / 1.05) ** 2
-        )
-
-        falloff = 1 - np.clip(
-            radius,
-            0.0,
-            1.0,
-        )
-
-        # Only use a very dark part of the gnuplot colormap.
-        start_grad = 0
-        end_grad = 0.4
-        gradient = (
-            start_grad
-            + (end_grad - start_grad) * falloff
-        )
-
-
-        rgba = (
-            matplotlib.colormaps["gist_gray"](
-                gradient
-            )
-            * 255
-        ).astype(np.uint8)
-
-        image = Image.fromarray(
-            rgba,
-            mode="RGBA",
-        )
-
-        if (
-            render_width != width
-            or render_height != height
-        ):
-            image = image.resize(
-                (width, height),
-                Image.Resampling.BICUBIC,
-            )
-
-        return image
-
-
-    def _redraw_window_gradient(self) -> None:
-        """Redraw the background at the current window size."""
-
-        if not self.winfo_exists():
-            return
-
-        width = self.winfo_width()
-        height = self.winfo_height()
-
-        if width < 10 or height < 10:
-            return
-
-        image = self._create_window_gradient_image(
-            width,
-            height,
-        )
-
-        self._window_gradient_photo = (
-            ImageTk.PhotoImage(image)
-        )
-
-        if self._window_gradient_image_id is None:
-            self._window_gradient_image_id = (
-                self._window_gradient_canvas.create_image(
-                    0,
-                    0,
-                    anchor="nw",
-                    image=self._window_gradient_photo,
-                )
-            )
-        else:
-            self._window_gradient_canvas.itemconfigure(
-                self._window_gradient_image_id,
-                image=self._window_gradient_photo,
-            )
 
     def _create_title_image(self):
         dark_style()
@@ -8603,8 +8531,6 @@ class SpectraLauncher(ctk.CTk):
                 tab.refresh_open_viewer_section_layout()
                 tab.refresh_open_viewer_plot_typography()
                 tab.refresh_calibration_plot_layout()
-            self.update_idletasks()
-            self._redraw_window_gradient()
             self.update_idletasks()
         finally:
             self.end_loading(loading_token)
@@ -9532,13 +9458,17 @@ class SpectraLauncher(ctk.CTk):
         dialog.focus_force()
 
     def _build_top_bar(self) -> None:
-        self.top_bar = ctk.CTkFrame(self, fg_color="transparent")
+        self.top_bar = ctk.CTkFrame(
+            self.title_shell,
+            fg_color="transparent",
+            corner_radius=0,
+        )
         self.top_bar.grid(
             row=0,
             column=0,
             sticky="ew",
-            padx=UI["outer_padding"],
-            pady=(16, 8),
+            padx=12,
+            pady=4,
         )
         self.top_bar.grid_columnconfigure(0, weight=1)
 
@@ -9615,7 +9545,7 @@ class SpectraLauncher(ctk.CTk):
 
     def _build_tabs(self) -> None:
         self.tabview = ButtonTabView(
-            self,
+            self.content_shell,
             button_width=160,
             max_button_width_factor=None,
             button_text_padding=0,
@@ -9660,11 +9590,11 @@ class SpectraLauncher(ctk.CTk):
             ),
         )
         self.tabview.grid(
-            row=1,
+            row=0,
             column=0,
             sticky="nsew",
-            padx=UI["outer_padding"],
-            pady=(0, 16),
+            padx=12,
+            pady=12,
         )
 
     def _on_dataset_tabs_reordered(self, ordered_names: list[str]) -> None:
